@@ -1,0 +1,11 @@
+00_raw_data
+01_metadata
+null
+results
+work
+.Rproj.user
+*nextflow.log*
+backup-results
+.nextflow
+caf-scrnaseq.Rproj
+test-outdir
