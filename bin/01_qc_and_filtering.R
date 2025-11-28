@@ -1,14 +1,14 @@
 #!/usr/bin/env Rscript
 
-# set a seed for reproducibility
-set.seed(1234)
-
 library(argparse)
 library(Seurat)
 library(dplyr)
 library(Matrix)
 library(scDblFinder)
 library(SingleCellExperiment)
+
+# set a seed for reproducibility
+set.seed(1234)
 
 # --- Argument Parsing ---
 parser <- ArgumentParser(description='Run QC, filtering, doublet detection, and normalization for a single 10x sample')

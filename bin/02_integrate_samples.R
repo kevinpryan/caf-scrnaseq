@@ -1,12 +1,12 @@
 #!/usr/bin/env Rscript
 
-# set a seed for reproducibility
-set.seed(1234)
-
 library(argparse)
 library(Seurat)
 library(dplyr)
 library(ggplot2)
+
+# set a seed for reproducibility
+set.seed(1234)
 
 # --- Argument Parsing ---
 parser <- ArgumentParser(description='Integrate multiple normalized Seurat objects')
