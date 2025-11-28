@@ -1,5 +1,8 @@
 #!/usr/bin/env Rscript
 
+# set a seed for reproducibility
+set.seed(1234)
+
 library(argparse)
 library(Seurat)
 library(dplyr)
@@ -24,6 +27,9 @@ features <- SelectIntegrationFeatures(object.list = seurat_object_list, nfeature
 
 # Prepare the objects for integration
 seurat_object_list <- PrepSCTIntegration(object.list = seurat_object_list, anchor.features = features)
+
+# run PCA on each object
+seurat_object_list <- lapply(X = seurat_object_list, FUN = RunPCA, features = features)
 
 # Find integration anchors
 # Using rpca for speed and memory efficiency, recommended for large datasets
