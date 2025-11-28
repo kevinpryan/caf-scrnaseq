@@ -1,0 +1,734 @@
+---
+title: "01_qc_and_filtering.Rmd"
+author: "Kevin Ryan"
+date: "2025-07-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+
+```{r}
+library(SeuratObject)
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(scater)
+library(ggpubr)
+install.packages("FSA")
+library(FSA)
+#install.packages("hdf5r")
+#install.packages("sp")
+#install.packages("spam")
+#install.packages("spatstat.data")
+```
+
+# read in data
+```{r}
+samplesheet <- read.csv("../01_metadata/samplesheet.csv")
+samplesheet$path <- paste("/home/rstudio/caf-scrnaseq", samplesheet$path, sep = "/")
+data_in <- list()
+seurat_list <- lapply(seq_along(samplesheet$path), function(i) {
+  # Read the H5 data
+  counts <- Read10X_h5(filename = samplesheet$path[i])
+  
+  # Create the Seurat object with a project name (sample name)
+  obj <- CreateSeuratObject(counts = counts, project = samplesheet$sample[i])
+  return(obj)
+})
+seurat_list
+```
+# % MT Reads
+# add percent MT column
+
+```{r}
+for (i in 1:length(seurat_list)){
+   seurat_list[[i]][["percent.mt"]] <- PercentageFeatureSet(seurat_list[[i]], pattern = "^MT-")
+}
+```
+
+```{r}
+samplesheet$samples
+high_recovery <- samplesheet$samples[1:3]
+low_recovery <- samplesheet$samples[4:5]
+low_recovery
+seurat_list[[1]]
+names(seurat_list)
+length(seurat_list)
+names(seurat_list) <- samplesheet$samples
+names(seurat_list)
+high_recovery_seurat <- seurat_list[1:3]
+low_recovery_seurat <- seurat_list[4:5]
+high_recovery_seurat$`4027`$percent.mt
+high_recovery_seurat_percent_mt <- c(
+  high_recovery_seurat$`4027`$percent.mt,
+  high_recovery_seurat$`4299`$percent.mt,
+  high_recovery_seurat$DF_CAF$percent.mt
+                                    )
+low_recovery_seurat_percent_mt <- c(
+  low_recovery_seurat$PC_CAF$percent.mt,
+  low_recovery_seurat$RM_CAF$percent.mt
+)
+shapiro.test(high_recovery_seurat_percent_mt[1:5000])
+
+wilcox.test(high_recovery_seurat_percent_mt, low_recovery_seurat_percent_mt)
+median(high_recovery_seurat_percent_mt)
+median(low_recovery_seurat_percent_mt)
+```
+
+```{r}
+# do direct comparison of mitochondrial content between DF (lung good recovery) and RM and PC (lung low recovery)
+wilcox.test(seurat_list$DF_CAF$percent.mt, seurat_list$PC_CAF$percent.mt)
+wilcox.test(seurat_list$DF_CAF$percent.mt, seurat_list$RM_CAF$percent.mt)
+
+```
+
+```{r}
+median(seurat_list$DF_CAF$percent.mt)
+median(seurat_list$RM_CAF$percent.mt)
+median(seurat_list$PC_CAF$percent.mt)
+median(seurat_list$`4027`$percent.mt)
+median(seurat_list$`4299`$percent.mt)
+```
+
+```{r}
+
+df.DF.CAF <- data.frame(mt_content = seurat_list$DF_CAF$percent.mt, sample = "DF_CAF", tissue = "lung", high_low_recovery = "high")
+df.PC.CAF <- data.frame(mt_content = seurat_list$PC_CAF$percent.mt, sample = "PC_CAF", tissue = "lung", high_low_recovery = "low")
+df.RM.CAF <- data.frame(mt_content = seurat_list$RM_CAF$percent.mt, sample = "RM_CAF", tissue = "lung", high_low_recovery = "low")
+df.combined <- rbind.data.frame(df.DF.CAF, df.PC.CAF, df.RM.CAF)
+result <- kruskal.test(mt_content ~ sample,
+                      data = df.combined) 
+result.posthoc <- dunnTest(mt_content ~ sample,
+                           data = df.combined, 
+                           method = "bh")
+```
+
+```{r}
+df.4027 <- data.frame(mt_content = seurat_list$`4027`$percent.mt, sample = "CAF_4027", tissue = "breast", high_low_recovery = "high")
+df.4299 <- data.frame(mt_content = seurat_list$`4299`$percent.mt, sample = "CAF_4299", tissue = "breast", high_low_recovery = "high")
+df.combined.all <- rbind.data.frame(df.combined, df.4027, df.4299)
+result.all <- kruskal.test(mt_content ~ sample,
+                      data = df.combined.all) 
+result.posthoc.all <- dunnTest(mt_content ~ sample,
+                           data = df.combined.all, 
+                           method = "bh")
+result.tissue <- kruskal.test(mt_content ~ tissue,
+                              data = df.combined.all)
+result.tissue
+result.posthoc.all
+```
+
+```{r}
+for_plotting <- data.frame(mt_content = high_recovery_seurat_percent_mt, high_low_recovery = "high")
+for_plotting2 <- data.frame(mt_content = low_recovery_seurat_percent_mt, high_low_recovery = "low")
+for_plotting3 <- rbind.data.frame(for_plotting, for_plotting2)
+```
+
+```{r}
+install.packages("effectsize")
+
+library(effectsize)
+rank_biserial(mt_content ~ high_low_recovery, data = for_plotting3, verbose = T, reference = "high")
+```
+
+```{r}
+compare_means(mt_content ~ high_low_recovery,  data = for_plotting3)
+my_comparisons <- list( c("high", "low"))
+
+```
+
+```{r}
+plt <- ggplot(for_plotting3, aes(x = high_low_recovery, y = log10(mt_content))) +
+  geom_violin(scale = "width", adjust=1.5, alpha=0.25) +
+  geom_boxplot(width=0.4) +
+  labs(x = "High or low recovery", 
+       y = "log10(Mitochondrial content)",
+       fill = NULL) +
+  theme_minimal() +
+  theme_bw() +
+  theme(axis.text.x = element_text(vjust = 1, hjust=1, size = 9, color = "black", angle = 45), plot.title = element_text(hjust = 0.5), axis.text.y = element_text(size = 8, color = "black"), legend.position = "none") +
+  #scale_fill_manual(
+  #  values = 
+  #    palette_mm
+  #) +
+  #scale_y_continuous(expand = c(0, 0)) +
+   # scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
+
+  #geom_text(data=sig.mm.stats.hrd, aes(y=y, label=label), size=3) 
+#stat_compare_means(method = "wilcox.test", label.y = 1.5, label.x = 1.35)
+stat_compare_means(comparisons = my_comparisons)
+  plt
+
+median(high_recovery_seurat_percent_mt)
+median(low_recovery_seurat_percent_mt)
+ggsave(filename = "../04_results/qc/violinplot-mt-content-log10.png", plot = plt)
+ggsave(filename = "../04_results/qc/violinplot-mt-content-log10.svg", plot = plt)
+ggsave(filename = "../04_results/qc/violinplot-mt-content-log10.pdf", plot = plt)
+
+```
+
+```{r}
+plt_all <- ggplot(df.combined.all, aes(x = sample, y = log10(mt_content))) +
+  geom_violin(scale = "width", adjust=1.5, alpha=0.25) +
+  geom_boxplot(width=0.4) +
+  labs(x = "Sample", 
+       y = "log10(Mitochondrial content)",
+       fill = NULL) +
+  geom_text(
+    data = median_labels_all, # Use our new summary data
+    aes(y = 2.5, label = label_text), # Position the label 5 units above the median
+    size = 3.5,
+    color = "black",
+    fontface = "bold"
+  ) +
+  theme_minimal() +
+  theme_bw() +
+  theme(axis.text.x = element_text(vjust = 1, hjust=1, size = 9, color = "black", angle = 45), plot.title = element_text(hjust = 0.5), axis.text.y = element_text(size = 8, color = "black"), legend.position = "none") +
+ 
+  #geom_text(data=sig.mm.stats.hrd, aes(y=y, label=label), size=3) 
+#stat_compare_means(method = "wilcox.test", label.y = 1.5, label.x = 1.35)
+stat_compare_means(
+  comparisons = my_comparisons_all
+  )
+  plt_all
+
+ggsave(filename = "../04_results/qc/all-samples-mt-content/violinplot-mt-content-log10-all-samples.png", plot = plt_all)
+ggsave(filename = "../04_results/qc/all-samples-mt-content/violinplot-mt-content-log10-all-samples.svg", plot = plt_all)
+ggsave(filename = "../04_results/qc/all-samples-mt-content/violinplot-mt-content-log10-all-samples.pdf", plot = plt_all)
+```
+
+```{r}
+plt_raw_all <- ggplot(df.combined.all, aes(x = sample, y = mt_content)) +
+  geom_violin(scale = "width", adjust=1.5, alpha=0.25) +
+  geom_boxplot(width=0.4) +
+   geom_text(
+    data = median_labels_all, # Use our new summary data
+    aes(y = 96, label = label_text), # Position the label 5 units above the median
+    size = 3.5,
+    color = "black",
+    fontface = "bold"
+  ) +
+  labs(x = "Sample", 
+       y = "Mitochondrial content %",
+       fill = NULL) +
+  theme_minimal() +
+  theme_bw() +
+  theme(axis.text.x = element_text(vjust = 1, hjust=1, size = 9, color = "black", angle = 45), plot.title = element_text(hjust = 0.5), axis.text.y = element_text(size = 8, color = "black"), legend.position = "none") +
+  #scale_fill_manual(
+  #  values = 
+  #    palette_mm
+  #) +
+  #scale_y_continuous(expand = c(0, 0)) +
+   scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
+
+  #geom_text(data=sig.mm.stats.hrd, aes(y=y, label=label), size=3) 
+#stat_compare_means(method = "wilcox.test", label.y = 80, label.x = 1.37)
+  stat_compare_means(comparisons = my_comparisons_all)
+
+plt_raw_all
+
+median(high_recovery_seurat_percent_mt)
+median(low_recovery_seurat_percent_mt)
+ggsave(filename = "../04_results/qc/all-samples-mt-content/violinplot-mt-content-all-samples.png", plot = plt_raw_all)
+ggsave(filename = "../04_results/qc/all-samples-mt-content/violinplot-mt-content-all-samples.svg", plot = plt_raw_all)
+ggsave(filename = "../04_results/qc/all-samples-mt-content/violinplot-mt-content-all-samples.pdf", plot = plt_raw_all)
+```
+
+```{r}
+# only plot lung cancer samples
+median_labels <- df.combined.all %>%
+  dplyr::filter(tissue == "lung") %>% 
+  group_by(tissue, sample) %>% # Group by both to keep all info
+  summarise(
+    median_value = median(mt_content),
+    .groups = 'drop' # Recommended practice to drop grouping after summarise
+  ) %>%
+  mutate(        
+    label_text = sprintf("Median: %.2f%%", median_value) 
+  )
+
+plt_raw_lung <- df.combined.all %>% 
+                dplyr::filter(tissue == "lung") %>% 
+                ggplot(., aes(x = sample, y = mt_content)) +
+                geom_violin(scale = "width", adjust=1.5, alpha=0.25) +
+                geom_boxplot(width=0.4) +
+                 geom_text(
+                  data = median_labels, # Use our new summary data
+                  aes(y = 96, label = label_text), # Position the label 5 units above the median
+                  size = 3.5,
+                  color = "black",
+                  fontface = "bold"
+                ) +
+                labs(x = "Sample", 
+                     y = "Mitochondrial content %",
+                     fill = NULL) +
+                theme_minimal() +
+                theme_bw() +
+                theme(axis.text.x = element_text(vjust = 1, hjust=1, size = 9, color = "black", angle = 45), plot.title = element_text(hjust = 0.5), axis.text.y = element_text(size = 8, color = "black"), legend.position = "none") +
+                #scale_fill_manual(
+                #  values = 
+                #    palette_mm
+                #) +
+                #scale_y_continuous(expand = c(0, 0)) +
+                 scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
+              
+                #geom_text(data=sig.mm.stats.hrd, aes(y=y, label=label), size=3) 
+              #stat_compare_means(method = "wilcox.test", label.y = 80, label.x = 1.37)
+                stat_compare_means(label.y = 85, label.x = 1.7)
+
+plt_raw_lung
+
+median(high_recovery_seurat_percent_mt)
+median(low_recovery_seurat_percent_mt)
+ggsave(filename = "../04_results/qc/lung-mt-content/violinplot-mt-content-lung.png", plot = plt_raw_lung)
+ggsave(filename = "../04_results/qc/lung-mt-content/violinplot-mt-content-lung.svg", plot = plt_raw_lung)
+ggsave(filename = "../04_results/qc/lung-mt-content/violinplot-mt-content-lung.pdf", plot = plt_raw_lung)
+```
+
+```{r}
+my_comparisons <- list(
+  c("DF_CAF", "PC_CAF"),  # High vs Low (Lung)
+  c("DF_CAF", "RM_CAF"),  # High vs Low (Lung)
+  c("CAF_4299", "CAF_4027"),      # High vs High (Breast)
+  c("DF_CAF", "CAF_4299")       # High (Lung) vs High (Breast) - Shows tissue effect
+)
+```
+
+```{r}
+median_labels <- df.combined.all %>%
+  group_by(tissue, sample) %>% # Group by both to keep all info
+  summarise(
+    median_value = median(mt_content),
+    .groups = 'drop' # Recommended practice to drop grouping after summarise
+  ) %>%
+  mutate(        
+    label_text = sprintf("Median: %.2f%%", median_value) 
+  )
+
+# Check the new summary table
+print(median_labels)
+
+ggplot(df.combined.all, aes(x = tissue, y = mt_content, fill = sample)) +
+  # Use position_dodge to show boxplots for each sample side-by-side
+  geom_boxplot(position = position_dodge(width = 0.9)) +
+   geom_text(
+    data = median_labels,
+    aes(label = label_text),
+    # This is the key: it moves the labels horizontally to align with the correct boxplot.
+    position = position_dodge(width = 0.9),
+    vjust = -0.5, # Vertically adjust to push it slightly above the boxes
+    size = 3.5,
+    color = "black"
+  ) +
+  scale_fill_viridis_d(option = "D") + # A nice palette for multiple samples
+  
+  labs(
+    title = "Mitochondrial Content by Sample, Grouped by Tissue",
+    x = "Tissue Type",
+    y = "Mitochondrial Content (%)",
+    fill = "Sample ID"
+  ) +
+
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.x = element_text(size = 12, face = "bold")
+  ) +
+  # Add a simple statistical test between the two main groups
+  stat_compare_means(comparisons = list(c("lung", "breast")), label = "p.signif", size = 5, method = "wilcox.test")
+```
+
+```{r}
+plt_raw_all_by_tissue <- ggplot(df.combined.all, 
+                                aes(x = sample, 
+                                    y = mt_content, 
+                                    colour = tissue)) +
+  geom_violin(scale = "width", adjust=1.5, alpha=0.25) +
+  geom_boxplot(width=0.4) +
+    #facet_grid(vars(tissue), scales = "free_x",
+    #space = "free_x"
+#) +
+   geom_text(
+    data = median_labels_all, # Use our new summary data
+    aes(y = 96, label = label_text), # Position the label 5 units above the median
+    size = 3.5,
+    color = "black",
+    fontface = "bold"
+  ) +
+  labs(x = "Sample", 
+       y = "Mitochondrial content %",
+       fill = NULL) +
+  theme_minimal() +
+  theme_bw() +
+  theme(axis.text.x = element_text(vjust = 1, hjust=1, size = 9, color = "black", angle = 45), plot.title = element_text(hjust = 0.5), axis.text.y = element_text(size = 8, color = "black"), legend.position = "none") +
+
+  #scale_fill_manual(
+  #  values = 
+  #    palette_mm
+  #) +
+  #scale_y_continuous(expand = c(0, 0)) +
+   scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
+
+  #geom_text(data=sig.mm.stats.hrd, aes(y=y, label=label), size=3) 
+#stat_compare_means(method = "wilcox.test", label.y = 80, label.x = 1.37)
+  stat_compare_means(comparisons = my_comparisons_all)
+
+plt_raw_all_by_tissue
+```
+
+```{r}
+my_comparisions <- list(c("breast", "lung"))
+stat.test <- compare_means(
+ mt_content ~ tissue, data = df.combined.all,
+ method = "wilcox.test"
+) %>%  mutate(y.position = 90)
+
+median_labels_tissue <- df.combined.all %>%
+  group_by(tissue) %>%
+  summarise(
+    median_value = median(mt_content),
+    # Create a formatted label string. The %.2f means "format as a number with 2 decimal places".
+    label_text = sprintf("Median: %.2f%%", median_value) 
+  )
+plt_raw_all_compare_tissues <- ggplot(df.combined.all, 
+                                aes(x = tissue, 
+                                    y = mt_content
+                                    )) +
+  geom_violin(scale = "width", adjust=1.5, alpha=0.25) +
+  geom_boxplot(width=0.4) +
+
+   geom_text(
+    data = median_labels_tissue, # Use our new summary data
+    aes(y = 95, label = label_text), 
+    size = 3.5,
+    color = "black",
+    fontface = "bold"
+  ) +
+  labs(x = "CAF Cancer Type", 
+       y = "Mitochondrial content %",
+       fill = NULL) +
+  theme_minimal() +
+  theme_bw() +
+  theme(axis.text.x = element_text(vjust = 1, hjust=1, size = 9, color = "black", angle = 45), plot.title = element_text(hjust = 0.5), axis.text.y = element_text(size = 8, color = "black"), legend.position = "none") +
+
+  #scale_fill_manual(
+  #  values = 
+  #    palette_mm
+  #) +
+  #scale_y_continuous(expand = c(0, 0)) +
+   scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
+  stat_pvalue_manual(stat.test, label = "p.signif", bracket.size = 0.3)
+  #stat_compare_means(comparisons = my_comparisions)
+
+  #geom_text(data=sig.mm.stats.hrd, aes(y=y, label=label), size=3) 
+#stat_compare_means(method = "wilcox.test", label.y = 80, label.x = 1.37)
+ggsave(filename = "../04_results/qc/breast-vs-lung-violinplot-mt-content.png", plot = plt_raw_all_compare_tissues)
+ggsave(filename = "../04_results/qc/breast-vs-lung-violinplot-mt-content.svg", plot = plt_raw_all_compare_tissues)
+ggsave(filename = "../04_results/qc/breast-vs-lung-violinplot-mt-content.pdf", plot = plt_raw_all_compare_tissues)
+plt_raw_all_compare_tissues
+```
+
+```{r}
+median_labels <- for_plotting3 %>%
+  group_by(high_low_recovery) %>%
+  summarise(
+    median_value = median(mt_content),
+    # Create a formatted label string. The %.2f means "format as a number with 2 decimal places".
+    label_text = sprintf("Median: %.2f%%", median_value) 
+  )
+
+```
+
+
+```{r}
+plt_raw <- ggplot(for_plotting3, aes(x = high_low_recovery, y = mt_content)) +
+  geom_violin(scale = "width", adjust=1.5, alpha=0.25) +
+  geom_boxplot(width=0.4) +
+   geom_text(
+    data = median_labels, # Use our new summary data
+    aes(y = 96, label = label_text), # Position the label 5 units above the median
+    size = 3.5,
+    color = "black",
+    fontface = "bold"
+  ) +
+  labs(x = "High or low recovery", 
+       y = "Mitochondrial content %",
+       fill = NULL) +
+  theme_minimal() +
+  theme_bw() +
+  theme(axis.text.x = element_text(vjust = 1, hjust=1, size = 9, color = "black", angle = 45), plot.title = element_text(hjust = 0.5), axis.text.y = element_text(size = 8, color = "black"), legend.position = "none") +
+  #scale_fill_manual(
+  #  values = 
+  #    palette_mm
+  #) +
+  #scale_y_continuous(expand = c(0, 0)) +
+   scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
+
+  #geom_text(data=sig.mm.stats.hrd, aes(y=y, label=label), size=3) 
+#stat_compare_means(method = "wilcox.test", label.y = 80, label.x = 1.37)
+  stat_compare_means(comparisons = my_comparisons)
+
+plt_raw
+median(high_recovery_seurat_percent_mt)
+median(low_recovery_seurat_percent_mt)
+ggsave(filename = "../04_results/qc/violinplot-mt-content.png", plot = plt_raw)
+ggsave(filename = "../04_results/qc/violinplot-mt-content.svg", plot = plt_raw)
+ggsave(filename = "../04_results/qc/violinplot-mt-content.pdf", plot = plt_raw)
+```
+
+```{r}
+median(high_recovery_seurat_percent_mt)
+median(low_recovery_seurat_percent_mt)
+```
+
+#View(scrnaseq_data@meta.data)
+
+```{r}
+for (i in 1:length(seurat_list)){
+  outfile <- paste("../04_results/qc/", names(seurat_list)[i], "/", names(seurat_list)[i], "-qc-violin-plots.png", sep = "")
+  print(outfile)
+  png(outfile)
+    print(VlnPlot(seurat_list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt", ncol = 3)))
+   dev.off()
+    }
+```
+
+```{r}
+for (i in 1:length(seurat_list)){
+  outfile <- paste("../04_results/qc/", names(seurat_list)[i], "/", names(seurat_list)[i], "-qc-violin-plots.svg", sep = "")
+  print(outfile)
+  svg(outfile)
+    print(VlnPlot(seurat_list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt", ncol = 3)))
+   dev.off()
+    }
+```
+
+```{r}
+for (i in 1:length(seurat_list)){
+  outfile <- paste("../04_results/qc/", names(seurat_list)[i], "/", names(seurat_list)[i], "-qc-violin-plots.pdf", sep = "")
+  print(outfile)
+  pdf(outfile)
+    print(VlnPlot(seurat_list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt", ncol = 3)))
+   dev.off()
+    }
+```
+
+```{r}
+for (i in 1:length(seurat_list)){
+plot1 <- FeatureScatter(seurat_list[[i]], feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(seurat_list[[i]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+print(plot1 + plot2)
+}
+```
+
+```{r}
+# careful here of warning:
+# Warning: Some cell names are duplicated across objects provided. Renaming to enforce unique cell names.
+
+seurat_list_merged <- merge(seurat_list[[1]], y = c(seurat_list[[2]], seurat_list[[3]], seurat_list[[4]], seurat_list[[5]]))
+seurat_list_merged$log10GenesPerUMI <- log10(seurat_list_merged$nFeature_RNA) / log10(seurat_list_merged$nCount_RNA)
+seurat_list_merged$mitoRatio <- PercentageFeatureSet(object = seurat_list_merged, pattern = "^MT-")
+seurat_list_merged$mitoRatio <- seurat_list_merged@meta.data$mitoRatio / 100
+```
+
+```{r}
+metadata <- seurat_list_merged@meta.data
+metadata
+```
+
+```{r}
+metadata$cells <- rownames(metadata)
+
+# Rename columns
+metadata <- metadata %>%
+        dplyr::rename(seq_folder = orig.ident,
+                      nUMI = nCount_RNA,
+                      nGene = nFeature_RNA)
+```
+
+```{r}
+seurat_list_merged@meta.data <- metadata
+```
+
+```{r}
+metadata %>% 
+  	ggplot(aes(x=seq_folder)) + 
+  	geom_bar() +
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells")
+```
+
+```{r}
+metadata %>% 
+  	ggplot(aes(color=seq_folder, x=nUMI)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+  	geom_vline(xintercept = 500)
+```
+
+```{r}
+# Visualize the distribution of genes detected per cell via histogram
+metadata %>% 
+  	ggplot(aes(color=seq_folder, x=nGene)) + 
+  	geom_density(alpha = 0.2) + 
+  	theme_classic() +
+  	scale_x_log10() + 
+  	geom_vline(xintercept = 300)
+
+# Visualize the distribution of genes detected per cell via boxplot
+metadata %>% 
+  	ggplot(aes(x=seq_folder, y=log10(nGene))) + 
+  	geom_boxplot() + 
+  	theme_classic() +
+  	theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  	theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  	ggtitle("NCells vs NGenes")
+```
+
+```{r}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+metadata %>% 
+  	ggplot(aes(x=nUMI, y=nGene, color=mitoRatio)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 500) +
+  	geom_hline(yintercept = 250) +
+  	facet_wrap(~seq_folder)
+```
+
+```{r}
+metadata %>% 
+  	ggplot(aes(color=seq_folder, x=mitoRatio)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 0.35)
+```
+
+```{r}
+filtered_seurat <- subset(x = seurat_list_merged, 
+                         subset= (nUMI >= 500) & 
+                           (nGene >= 250) & 
+                           (log10GenesPerUMI > 0.80) & 
+                           (mitoRatio < 0.05))
+```
+
+```{r}
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = seq_folder)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = 0.8)
+```
+
+```{r}
+filtered_seurat[["RNA_joined"]] <- JoinLayers(filtered_seurat[["RNA"]])
+```
+
+```{r}
+DefaultAssay(filtered_seurat) <- "RNA_joined"
+counts <- filtered_seurat[["RNA_joined"]]$counts 
+#LayerData(object = filtered_seurat, layer = "counts")
+n_cells_per_gene <- Matrix::rowSums(counts > 0)
+
+# Output a logical vector for every gene on whether the more than zero counts per cell
+genes_to_keep <- names(n_cells_per_gene[n_cells_per_gene >= 10])
+seu_obj_filtered_genes <- filtered_seurat[genes_to_keep, ]
+DefaultAssay(seu_obj_filtered_genes) <- "RNA"
+
+print(paste("Original number of genes:", nrow(filtered_seurat)))
+print(paste("Number of genes to keep after filtering:", length(genes_to_keep)))
+```
+
+```{r}
+metadata_clean <- seu_obj_filtered_genes@meta.data
+```
+
+```{r}
+metadata_clean %>% 
+  	ggplot(aes(color=seq_folder, x=mitoRatio)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 0.35)
+```
+
+```{r}
+metadata %>% group_by(seq_folder) %>% summarise(ncells_before_filtering = n())
+metadata_clean %>% group_by(seq_folder) %>% summarise(ncells_after_filtering = n())
+```
+
+```{r}
+# metadata <- metadata %>%
+#         dplyr::rename(seq_folder = orig.ident,
+#                       nUMI = nCount_RNA,
+#                       nGene = nFeature_RNA)
+
+VlnPlot(seu_obj_filtered_genes, split.by = "ident",  features = c("percent.mt"))
+VlnPlot(seu_obj_filtered_genes, split.by = "ident",  features = c("nGene"))
+VlnPlot(seu_obj_filtered_genes, split.by = "ident",  features = c("nUMI", ncol = 1))
+
+# for (i in 1:length(seurat_list)){
+#     print(VlnPlot(seurat_list[[i]], features = c("nFeature_RNA", "nCount_RNA", "percent.mt", ncol = 3)) )
+# }
+```
+
+```{r}
+saveRDS(seu_obj_filtered_genes, file = "../03_processed_data/01_qc_and_filtering/seu_obj_filtered_genes.Rds")
+```
+
+
+```{r}
+seu_obj_filtered_genes <- NormalizeData(seu_obj_filtered_genes, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r}
+seu_obj_filtered_genes <- FindVariableFeatures(seu_obj_filtered_genes, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(seu_obj_filtered_genes), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(seu_obj_filtered_genes)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+
+```{r}
+# seu_obj_split <- SplitLayers(seu_obj_filtered_genes)
+# library(Seurat)
+# 
+# # Now, R will be able to find and execute the SplitLayers function
+# seu_obj_split <- Seurat::SplitLayers(seu_obj_filtered_genes)
+# 
+# seu_obj_filtered_genes_sce <- as.SingleCellExperiment(seu_obj_filtered_genes)
+# plotHighestExprs(as.SingleCellExperiment(seu_obj_filtered_genes))
+# for (i in 1:5)
+```
+
+```{r}
+scrnaseq_data
+for (i in 1:length(seurat_list)){
+  scrnaseq_data[[i]] <- subset(seurat_list[[i]], subset = nFeature_RNA > 100 & nFeature_RNA < 3000 & percent.mt < 20)
+}
+```
+
+#FeatureScatter(scrnaseq_data, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") + 
+#  geom_smooth(method = "lm")
+
+# Filtering
+

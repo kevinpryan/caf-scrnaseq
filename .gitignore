@@ -9,3 +9,7 @@ backup-results
 .nextflow
 caf-scrnaseq.Rproj
 test-outdir
+*.Rds
+*.rds
+04_results
+run-rstudio-old.sh

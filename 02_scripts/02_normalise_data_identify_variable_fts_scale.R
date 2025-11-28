@@ -1,0 +1,8 @@
+library(Seurat)
+library(dplyr)
+seu_obj_filtered_genes <- LoadSeuratRds("../03_processed_data/01_qc_and_filtering/seu_obj_filtered_genes.Rds")
+seu_obj_filtered_genes <- NormalizeData(seu_obj_filtered_genes, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_obj_filtered_genes <- FindVariableFeatures(seu_obj_filtered_genes, selection.method = "vst", nfeatures = 2000)
+all.genes <- rownames(seu_obj_filtered_genes)
+seu_obj_filtered_genes <- ScaleData(seu_obj_filtered_genes, features = all.genes)
+saveRDS(seu_obj_filtered_genes, file = "../03_processed_data/02_normalize_variablefts_scale/seu_obj_filtered_genes_normalised_scaled.Rds")

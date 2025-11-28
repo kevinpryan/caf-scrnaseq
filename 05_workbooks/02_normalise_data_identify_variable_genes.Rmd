@@ -1,0 +1,39 @@
+---
+title: "Normalise Variable genes"
+output: html_document
+date: "2025-11-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(scater)
+```
+
+```{r}
+seu_obj_filtered_genes <- LoadSeuratRds("../03_processed_data/01_qc_and_filtering/seu_obj_filtered_genes.Rds")
+```
+
+```{r}
+seu_obj_filtered_genes <- NormalizeData(seu_obj_filtered_genes, normalization.method = "LogNormalize", scale.factor = 10000)
+seu_obj_filtered_genes <- FindVariableFeatures(seu_obj_filtered_genes, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(seu_obj_filtered_genes), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(seu_obj_filtered_genes)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+```{r}
+all.genes <- rownames(seu_obj_filtered_genes)
+seu_obj_filtered_genes <- ScaleData(seu_obj_filtered_genes, features = all.genes)
+```
+

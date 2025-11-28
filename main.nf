@@ -53,7 +53,7 @@ process INTEGRATE {
     path(normalized_rds_list) // This will be a list of files from the previous step
 
     output:
-    path "integrated_seurat_object.Rds"
+    path "integrated_seurat_object.Rds", emit: integrated_rds
     //path "integrated_umap.png"
     path "elbow_plot.png"
 
@@ -70,22 +70,45 @@ process INTEGRATE {
     """
 }
 
-/*
-
-process QC_AND_FILTER {
-    publishDir "${params.outdir}/01_filtered_sce_objects", mode: 'copy'
+process CLUSTER {
+    publishDir "${params.outdir}/03_cluster", mode: 'copy'
 
     input:
-    path(samplesheet)
+    path(integrated_rds)
 
     output:
-    path "seurat.filtered.rds"
+    path "clustered_integrated_seurat_dietseurat.rds", emit: rds_clustered_seurat_file
+    path "clustered_integrated_sce_dietseurat.rds", emit: rds_clustered_sce_file
+    path "*.csv"
+    path "cellular-composition-by-sample-integrated_snn_res.0.5*"
+
+    cpus 8
+    memory '20.GB'
 
     script:
     """
-    Rscript ${baseDir}/02_scripts/01_qc_and_filtering.R \
-        --samplesheet ${samplesheet} \
-        --output_rds seurat.filtered.rds
+    03_cluster.R \\
+      --input_rds ${integrated_rds}
     """
+}
+/*
+process ANNOTATION {
+    input:
+    path(rds_clustered_sce_file)
+
+
+    output:
+    path "annotated_clustered_sce.rds"
+
+    cpus 8
+    memory '128.GB'
+
+    script:
+    """
+    04_annotation.R \\
+      --input_rds ${rds_clustered_sce_file} \\
+      --output_rds "annotated_clustered_sce.rds"
+    """ 
+
 }
 */
