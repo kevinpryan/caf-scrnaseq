@@ -59,7 +59,7 @@ process INTEGRATE {
 
     // Request more memory and CPUs for this step as it's the most intensive
     cpus 8
-    memory '20.GB'
+    memory '64.GB'
 
     script:
     """
